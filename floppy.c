@@ -24,12 +24,18 @@ void init_dma(short addr, short size);
 void read_mode_dma();
 void write_mode_dma();
 
+//flpy用のタスク
+void flpy_task(){
+    return;
+}
+
+//割り込みハンドラ
 void inthandler26(int *esp){
 
+    //もう一度PICに監視をしてもらう。
     out_8(PIC0_OCW2, 0x66);
     ReceivedIRQ6 = 1;
     return;
-
 }
 
 //フロッピーディスクの初期化する
@@ -101,7 +107,7 @@ void motor_on(){
 
 
 //readコマンドを発行する。
-void issue_command_read(){
+void issue_command_read(char cylinder,char head,char sector){
 
     short addr = 0x3000;
     short size = 1024;
@@ -111,16 +117,16 @@ void issue_command_read(){
     dma_valid();
     read_mode_dma();
 
-    //readコマンドを発行する。
-    issue(DATA_FIFO, 0x06);
-    //シリンダ番号0で、ドライブ番号0を読み込む。
-    issue(DATA_FIFO, 0x00);
+    //READ_DATAコマンドを発行する。
+    issue(DATA_FIFO, READ_DATA);
+    //ヘッド番号0で、ドライブ番号0を読み込む。
+    issue(DATA_FIFO, 0x04&head);
     //シリンダ番号0を発行する。
-    issue(DATA_FIFO, 0x00);
+    issue(DATA_FIFO, cylinder);
     //ヘッド番号を発行する。
-    issue(DATA_FIFO, 0x00);
+    issue(DATA_FIFO, head);
     //セクタ番号を発行する。
-    issue(DATA_FIFO, 0x01);
+    issue(DATA_FIFO, sector);
     //セクタサイズを発行する。
     issue(DATA_FIFO, 0x02);
     //トラック長を指定する。
@@ -144,7 +150,7 @@ void issue_command_read(){
     return;
 }
 
-void issue_command_write(){
+void issue_command_write(char cylinder,char head, char sector){
 
     short addr = 0x3000;
     short size = 1024;
@@ -153,15 +159,15 @@ void issue_command_write(){
     write_mode_dma();
 
     //WRITE_DATAを発行する。
-    issue(DATA_FIFO, 0x05);
+    issue(DATA_FIFO, WRITE_DATA);
     //ヘッド番号0で、ドライブ番号0を読み込む
-    issue(DATA_FIFO, 0x04);
+    issue(DATA_FIFO, 0x04&head);
     //シリンダ番号0を発行する。
-    issue(DATA_FIFO, 0x00);
+    issue(DATA_FIFO, cylinder);
     //ヘッド番号1を発行する。
-    issue(DATA_FIFO, 0x01);
+    issue(DATA_FIFO, head);
     //セクタ番号2を発行する。
-    issue(DATA_FIFO, 0x02);
+    issue(DATA_FIFO, sector);
     //セクターサイズを発行する。
     issue(DATA_FIFO, 0x02);
     //トラック長を発行する。
@@ -181,6 +187,39 @@ void issue_command_write(){
     msr_check_resultphase();
     msr_check_resultphase();
     msr_check_resultphase();
+
+    return;
+}
+
+
+//LBA方式で読み込み
+void read_lba(int lba){
+    char cylinder;
+    char head;
+    char sector;
+
+    cylinder = ((char)lba)/(18*2);
+    head     = ((char)lba/18)%2;
+    sector   = (((char)lba)%18)+1;
+
+    //コマンドを発行する。
+	issue_command_read(cylinder, head, sector);
+
+    return;
+}
+
+//LBA方式で書き込み
+void write_lba(int lba){
+    char cylinder;
+    char head;
+    char sector;
+
+    cylinder = lba/(18*2);
+    head     = (lba/18)%head;
+    sector   = lba%18+1;
+
+    //コマンドを発行する。
+	issue_command_write(cylinder, head, sector);
 
     return;
 }
