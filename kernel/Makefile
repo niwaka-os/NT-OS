@@ -1,5 +1,5 @@
-TOOLPATH = /usr/local/bin/
-NT-OSPATH= /Users/mori/Desktop/NT-OS/
+TOOLPATH =;ここはみなさんのパスを!!
+NT-OSPATH=;ここはみなさんのパスを!!
 MAKE     = make
 NASM     = $(TOOLPATH)nasm
 GCC      = $(TOOLPATH)i386-elf-gcc
