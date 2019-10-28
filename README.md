@@ -32,6 +32,7 @@
 2.  はじめて読む486
 
 <h2>使い方</h2>
+<p>環境→MacOS, qemu</p>
 </p>brew install gcc-elf-i386を実行した後に、kernelの下でmake run</p>
 
 ## License
