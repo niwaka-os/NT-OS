@@ -40,5 +40,7 @@
 <p>環境→MacOS, qemu</p>
 </p>brew install gcc-elf-i386を実行した後に、kernelの下でmake run</p>
 
+![スクショ1]https://github.com/niwaka-os/NT-OS/edit/master/スクリーンショット 2019-10-28 21.11.24
+
 ## License
 MIT
