@@ -8,11 +8,29 @@ unsigned int len(char* s);
 //keyboard.c
 char pop_buff(BUFF *bf);
 
+char prompt[16] ={
+    0x00,
+    0x40,
+    0x20,
+    0x10,
+    0x08,
+    0x04,
+    0x02,
+    0x01,
+    0x01,
+    0x02,
+    0x04,
+    0x08,
+    0x10,
+    0x20,
+    0x40,
+    0x00,
+};
 
 typedef struct vim_data{
-    char filenmae[8];       //vimで使用するファイル名
+    char filename[11];       //vimで使用するファイル名
     char vim_buf[1024*768]; //vimで使用できるテキストのバッファ
-    char char command[10];  //vimコマンド
+    char command[10];  //vimコマンド
     int vram_start;         //vramの開始番地
     int vram_end;           //vramの終了番地
     int vram_high;          //画面の高さ
@@ -21,10 +39,17 @@ typedef struct vim_data{
     int max_row, max_col;   //最大何行何列
     int text_row, text_col; //テキスト領域の中での、今何行何列にいるのか?
     int text_max_row, text_max_col;//テキストエリアの最大何行何列
+    char vim_file[1024*768];  //ファイル保存用エリア。
 }VIM;
 
+typedef struct file_content{
+    char *file_content;     //保存したファイルの保存場所
+    int file_size;          //fileのサイズ
+    char file_name[11];     //ファイルの名前
+}FILE_CONTENT;
+
 //keycode変換用、各要素は、keycodeに対応したASCII_CODEが格納されています。
-char key_table[52]={0x00, 0x00, '1', '2', '3', '4', '5', '6', 0x37, 0x38, 0x39, 0x30,0x00, 0x00, 0x00, 0x00, 0x51, 0x57, 0x45, 0x52, 0x54, 0x59, 0x55, 0x5b,0x4f, 0x50, 0x40, 0x7b, 0x1c, 0x1d, 0x41, 0x53, 0x44, 0x46, 0x47, 0x48, 0x4a, 0x4b, 0x4c, 0x3b, 0x3a, 0x00, 0x2a, 0x7d, 0x5a, 0x58, 0x43, 0x56,0x42, 0x4e, 0x4d};
+char key_table[54]={0x00, 0x00, '1', '2', '3', '4', '5', '6', 0x37, 0x38, 0x39, 0x30,0x2d, 0x00, 0x00, 0x00, 0x51, 0x57, 0x45, 0x52, 0x54, 0x59, 0x55, 0x49,0x4f, 0x50, 0x40, 0x7b, 0x1c, 0x1d, 0x41, 0x53, 0x44, 0x46, 0x47, 0x48, 0x4a, 0x4b, 0x4c, 0x2b, 0x3a, 0x00, 0x2a, 0x7d, 0x5a, 0x58, 0x43, 0x56,0x42, 0x4e, 0x4d, 0x00, 0x2e};
 
 //consoleのメイン関数
 void console_main(CONSOLE *cons){
@@ -33,7 +58,10 @@ void console_main(CONSOLE *cons){
     unsigned char data;
 	FILE_ENTRY* file_entry;
 	file_entry = 0x3000;	//file_entryは0x3000番地から
-    
+    //500000
+    VIM *vim;
+    vim = 0x500000;         //0x500000~0x5fffffは、vim用の領域
+
     int flg;
     loop:
         while(1){
@@ -53,10 +81,12 @@ void console_main(CONSOLE *cons){
                     //コマンドのリセット
                     reset_command(cons);
                     //LBA方式でフロッピーディスクからデータを読み込みする。
-                    if(flg==0){
+                    if(flg==0){//lsコマンドを実行する。
                         read_lba(19);//論理セクタ番号19以降には、ディレクトリ領域が存在する。
                         //lsコマンド
                         ls(file_entry, cons);
+                    }else if(flg==1){//vimコマンド実行する。
+                        vim_main(vim, cons);
                     }
                     //新しいプロンプト生成する。
                     new_prompt(cons);
@@ -100,10 +130,12 @@ void new_prompt(CONSOLE *cons){
         console_reset(cons);
         return;
     }
-    console_setbuf(cons, font_ASCII[78], cons->now_col, cons->now_row);
-    console_setbuf(cons, font_ASCII[65], cons->now_col, cons->now_row);
-    console_setbuf(cons, font_ASCII[79], cons->now_col, cons->now_row);   
-    console_setbuf(cons, font_ASCII[83], cons->now_col, cons->now_row); 
+    console_setbuf(cons, font_ASCII[0x4e], cons->now_col, cons->now_row);
+    console_setbuf(cons, font_ASCII[0x54], cons->now_col, cons->now_row);
+    console_setbuf(cons, font_ASCII[0x2d], cons->now_col, cons->now_row);   
+    console_setbuf(cons, font_ASCII[0x4f], cons->now_col, cons->now_row); 
+    console_setbuf(cons, font_ASCII[0x53], cons->now_col, cons->now_row); 
+
     console_setbuf(cons, prompt, cons->now_col, cons->now_row);
 
     consbuf_to_vram(cons);
@@ -202,10 +234,11 @@ void delete_char_cons(CONSOLE *cons){
 
 //コンソール画面を描画する。
 void console_print(CONSOLE *cons){
-    console_setbuf(cons, font_ASCII[78], cons->now_col, cons->now_row);
-    console_setbuf(cons, font_ASCII[65], cons->now_col, cons->now_row);
-    console_setbuf(cons, font_ASCII[79], cons->now_col, cons->now_row);   
-    console_setbuf(cons, font_ASCII[83], cons->now_col, cons->now_row); 
+    console_setbuf(cons, font_ASCII[0x4e], cons->now_col, cons->now_row);
+    console_setbuf(cons, font_ASCII[0x54], cons->now_col, cons->now_row);
+    console_setbuf(cons, font_ASCII[0x2d], cons->now_col, cons->now_row);   
+    console_setbuf(cons, font_ASCII[0x4f], cons->now_col, cons->now_row); 
+    console_setbuf(cons, font_ASCII[0x53], cons->now_col, cons->now_row); 
     console_setbuf(cons, prompt, cons->now_col, cons->now_row);
 
     consbuf_to_vram(cons);
@@ -234,10 +267,11 @@ void console_reset(CONSOLE *cons){
         cons->print_buf[j] = 0;
         j++;
     }
-    console_setbuf(cons, font_ASCII[78], cons->now_col, cons->now_row);
-    console_setbuf(cons, font_ASCII[65], cons->now_col, cons->now_row);
-    console_setbuf(cons, font_ASCII[79], cons->now_col, cons->now_row);   
-    console_setbuf(cons, font_ASCII[83], cons->now_col, cons->now_row); 
+    console_setbuf(cons, font_ASCII[0x4e], cons->now_col, cons->now_row);
+    console_setbuf(cons, font_ASCII[0x54], cons->now_col, cons->now_row);
+    console_setbuf(cons, font_ASCII[0x2d], cons->now_col, cons->now_row);   
+    console_setbuf(cons, font_ASCII[0x4f], cons->now_col, cons->now_row); 
+    console_setbuf(cons, font_ASCII[0x53], cons->now_col, cons->now_row); 
     console_setbuf(cons, prompt, cons->now_col, cons->now_row);
 
     consbuf_to_vram(cons);
@@ -248,26 +282,6 @@ void console_reset(CONSOLE *cons){
 void console_subreset(CONSOLE *cons, int row){
     return;
 }
-
-char prompt[16] ={
-    0x00,
-    0x40,
-    0x20,
-    0x10,
-    0x08,
-    0x04,
-    0x02,
-    0x01,
-    0x01,
-    0x02,
-    0x04,
-    0x08,
-    0x10,
-    0x20,
-    0x40,
-    0x00,
-};
-
 
 //ファイル作成
 void make_file(){
@@ -290,44 +304,308 @@ void delete_dir(){
 }
 
 //ファイル保存
-void save_file(){
+void save_file(VIM *vim){
+
+	FILE_ENTRY *entry;
+    FILE_ENTRY *entry_now;
+    entry = 0x3000;
+    int i;
+    entry_now = (entry+2);
+
+    char *filename;
+    int file_size;
+    char *file_buf;
+
+    char *s;
+    s = 0x7c00;
+    for(i=0;i<8;i++){
+        *(s+i) = vim->filename[i];
+    }
+
+    filename = &vim->filename[0];
+    file_size = (1024*768);
+    file_buf = vim->vim_file;
+
+    for(i=0; i < 8; i++){
+        entry_now->filename[i] = filename[i];
+    }
+    for(i=0; i < 3; i++){
+        entry_now->extension[i] = filename[i+8];
+    }
+    //write_lba(19);
     return;
 }
 
-//vimプログラム
-void vim_main(CONSOLE *cons, VIM *vim){
+//vimのmainプログラム
+void vim_main(VIM *vim, CONSOLE *cons){
     //テキストエディタを立ち上げる
-
+    BUFF *key_bf;
+    key_bf = 0x00010010;
+    unsigned char data;
+    int flg;
     //コンソールのリセットを行う。
     console_reset(cons);
     //vim用の画面を立ち上げる。
-    startup_vim();
+    startup_vim(vim, cons);
+
     //mainループ
-    for(;;){
+    loop:while(1){
+        //なぜかこのif文を入れないとバグが発生する。調査中
+        if(key_bf->data_num >100){
+        print_font_ascii(65, 30, 30);
+        }
+        if(key_bf->data_num>=1){
+            //CLI命令ここで使う方がいいかも?
+            data = pop_buff(key_bf);        //バッファからデータを取り出す。消費者
 
+            //STI命令で解除
+            //Enterを押したとき
+            if(data == 0x1c){
+                vim_nextline(vim); 
+                goto loop;      //while分の先頭へ
+            }else if(data==0x1d){//コントロールキーを押した時、
+
+                //PRESS+KEYをタイトルに書き込む
+                vim_titlesetbuf(vim, font_ASCII['P'], 1, 44, 15);
+                vim_titlesetbuf(vim, font_ASCII['R'], 1, 45, 15);
+                vim_titlesetbuf(vim, font_ASCII['E'], 1, 46, 15);
+                vim_titlesetbuf(vim, font_ASCII['S'], 1, 47, 15);
+                vim_titlesetbuf(vim, font_ASCII['S'], 1, 48, 15);
+                vim_titlesetbuf(vim, font_ASCII['+'], 1, 49, 15);
+                vim_titlesetbuf(vim, font_ASCII['S'], 1, 50, 15);
+                vim_titlesetbuf(vim, font_ASCII['-'], 1, 51, 15);
+                vim_titlesetbuf(vim, font_ASCII['K'], 1, 52, 15);
+                vim_titlesetbuf(vim, font_ASCII['E'], 1, 53, 15);
+                vim_titlesetbuf(vim, font_ASCII['Y'], 1, 54, 15);
+
+                //vramに書き込む
+                vimbuf_to_vram(vim);
+
+                for(;;){
+                    data = pop_buff(key_bf);
+                    if(data <= 127){
+                        if(data==0x1f){//Sキーを押したら終了する。
+                            //ファイルの保存をする。
+                            save_file(vim);
+                            console_reset(cons);
+                            return;
+                        }
+                        if(data != 0x1f){//違うの押したら、元に戻る。
+                            goto loop;
+                        }
+                    }
+                }
+            }
+            vim_setbuf(vim, font_ASCII[key_table[data]], vim->now_row, vim->now_col);
+            vimbuf_to_vram(vim);
+        }
     }
-
     //vimを終了するので、コンソールを立ち上げる。
     console_reset(cons);
     return; //vimコマンド終了する。
+
 }
 
 //vimの画面を立ち上げる。
-void startup_vim(CONSOLE *cons, VIM *vim){
+void startup_vim(VIM *vim, CONSOLE *cons){
+    int i, j;
+    j = 0;
+
+    //変数の初期化を行う。
+    vim->filename[0]="N";
+    vim->filename[1]="N";
+    vim->filename[2]="N";
+    vim->filename[3]="N";
+    vim->filename[4]="N";
+    vim->filename[5]="N";
+    vim->filename[6]="N";
+    vim->filename[7]="N";
+    vim->filename[8]="N";
+    vim->filename[9]="N";
+    vim->filename[10]="N";
+
+    //char vim_buf[1024*768]; //vimで使用できるテキストのバッファ
+    //char command[10];  //vimコマンド
+    vim->vram_start=cons->vram_start;         //vramの開始番地
+    vim->vram_end=cons->vram_end;           //vramの終了番地
+
+    vim->now_row=2, vim->now_col=3;   //今、何行何列にいるのか?
+    vim->max_row=47, vim->max_col=102;   //最大何行何列
+    vim->text_row=0, vim->text_col=2; //テキスト領域の中での、今何行何列にいるのか?
+    vim->text_max_row=1024, vim->text_max_col=768;//テキストエリアの最大何行何列
+
+    //画面を初期化する。
+    for(i = cons->vram_start; i < cons->vram_end; i++){
+        vim->vim_buf[j] = 15;           //とりあえず画面を白く
+        *((char*)i) = 15;
+        j++;
+    }
+
+    //タイトルの背景色
+    //iが、y座標
+    //jが、x座標
+    for(i = 0;i<32;i++){
+        for(j=0; j < 1024; j++){
+            vim->vim_buf[j+1024*i] = 0;
+        }
+    }
     
+    for(i = 736;i<768;i++){
+        for(j=0; j < 1024; j++){
+            vim->vim_buf[j+1024*i] = 0;
+        }
+    }
+
+    char *s;
+    //char* sprintf_nt(char *s, int x)を使って埋め込む
+    vim_titlesetbuf(vim, font_ASCII[0x56], 0, 38, 15);
+    vim_titlesetbuf(vim, font_ASCII[0x49], 0, 39, 15);
+    vim_titlesetbuf(vim, font_ASCII[0x4d], 0, 40, 15);
+    
+    vim_titlesetbuf(vim, font_ASCII[0x45], 0, 42, 15);
+    vim_titlesetbuf(vim, font_ASCII[0x44], 0, 43, 15);
+    vim_titlesetbuf(vim, font_ASCII[0x49], 0, 44, 15);
+    vim_titlesetbuf(vim, font_ASCII[0x54], 0, 45, 15);
+
+    for(i=2; i < 46; i++){
+        sprintf_nt(s, i-2);
+        vim_setbuf(vim, font_ASCII[s[1]], i, 0);
+        vim_setbuf(vim, font_ASCII[s[0]], i, 1);
+        vim_setbuf(vim, font_ASCII[0x3a], i, 2);
+    }
+    vim_titlesetbuf(vim, font_ASCII[0x53], 46, 45, 12);
+    vim_titlesetbuf(vim, font_ASCII[0x41], 46, 46, 12);
+    vim_titlesetbuf(vim, font_ASCII[0x56], 46, 47, 12);
+    vim_titlesetbuf(vim, font_ASCII[0x45], 46, 48, 12);
+    vim_titlesetbuf(vim, font_ASCII[0x3a], 46, 49, 12);
+    vim_titlesetbuf(vim, font_ASCII[0x43], 46, 50, 12);
+    vim_titlesetbuf(vim, font_ASCII[0x52], 46, 51, 12);
+    vim_titlesetbuf(vim, font_ASCII[0x54], 46, 52, 12);
+    vim_titlesetbuf(vim, font_ASCII[0x4c], 46, 53, 12);
+    vim_titlesetbuf(vim, font_ASCII[0x2b], 46, 54, 12);
+    vim_titlesetbuf(vim, font_ASCII[0x53], 46, 55, 12);
+
+    //添字描画の時、加算されているため、リセットする。
+    vim->now_col = 3;
+    vim->now_row = 2;
+
+    vimbuf_to_vram(vim);
     return;
 }
 
+//vimの新しい行に移動する。
+void vim_nextline(VIM *vim){
+    vim->now_col=3;
+    vim->now_row++;
+    //最大行まで来た時の処理は、考え中
+    //consoleと同じようにするわけにもいかない。(書き込んだ文字列全て保存したい。)
+    //動的にメモリ確保して、スクロール実装するかも?
+}
+
+//vimのバッファの内容をvramへ
+void vimbuf_to_vram(VIM *vim){
+    int i, j;
+    j = 0;
+    for(i = vim->vram_start; i < vim->vram_end; i++){
+        *((char*)i) = vim->vim_buf[j++];
+    }
+}
+
+//タイトル枠に、文字列を書き込む。タイトルに限り色を指定可能。
+void vim_titlesetbuf(VIM *vim, char *font, int row, int col, int color){
+    int x, y;
+    x = 10*col;
+    y = 16*row;
+    int i;
+    char data;
+
+    for(i=0; i < 16; i++){
+		data = font[i];
+
+		if((data & 0x80) != 0){
+			vim->vim_buf[x+1024*(i+y)] = color;
+		}
+		if((data & 0x40) != 0){
+			vim->vim_buf[x+1+1024*(i+y)] = color;
+		}
+		if((data & 0x20) != 0){
+			vim->vim_buf[x+2+1024*(i+y)] = color;
+        }
+		if((data & 0x10)  != 0){
+			vim->vim_buf[x+3+1024*(i+y)] = color;
+		}
+		if((data & 0x08) != 0){
+			vim->vim_buf[x+4+1024*(i+y)] = color;
+		}
+		if((data & 0x04) != 0){
+			vim->vim_buf[x+5+1024*(i+y)] = color;
+		}
+		if((data & 0x02) != 0){
+			vim->vim_buf[x+6+1024*(i+y)] = color;
+		}
+		if((data & 0x01) != 0){
+			vim->vim_buf[x+7+1024*(i+y)] = color;
+		}
+	}
+
+    return;
+}
 
 //vimのバッファに描画データを送る。
-void vim_setbuf(CONSOLE *cons, VIM *vim){
+void vim_setbuf(VIM *vim, char *font, int row, int col){
+    int x, y;
+    x = 10*col;
+    y = 16*row;
+    int i;
+    char data;
 
+    for(i=0; i < 16; i++){
+		data = font[i];
+
+		if((data & 0x80) != 0){
+			vim->vim_buf[x+1024*(i+y)] = 0;
+		}
+		if((data & 0x40) != 0){
+			vim->vim_buf[x+1+1024*(i+y)] = 0;
+		}
+		if((data & 0x20) != 0){
+			vim->vim_buf[x+2+1024*(i+y)] = 0;
+        }
+		if((data & 0x10)  != 0){
+			vim->vim_buf[x+3+1024*(i+y)] = 0;
+		}
+		if((data & 0x08) != 0){
+			vim->vim_buf[x+4+1024*(i+y)] = 0;
+		}
+		if((data & 0x04) != 0){
+			vim->vim_buf[x+5+1024*(i+y)] = 0;
+		}
+		if((data & 0x02) != 0){
+			vim->vim_buf[x+6+1024*(i+y)] = 0;
+		}
+		if((data & 0x01) != 0){
+			vim->vim_buf[x+7+1024*(i+y)] = 0;
+		}
+	}
+
+    vim->now_col++;
+    //最後の列まできた
+    if(vim->now_col == vim->max_col){
+        vim->now_col = 3;
+        vim->now_row++;        
+        if(vim->now_row >= vim->max_row){ //最後の行まできたs
+            vim->now_row = 2;
+            //console_reset(cons);ここで強制セーブにする予定
+        }
+    }
+ 
     return;
 }
 
 
 void ls(FILE_ENTRY* entry, CONSOLE*cons){
 
+    //下の数行は関数化する予定
     cons->now_row++;
     cons->now_col=0;
     //最終行まで来た時
@@ -336,20 +614,16 @@ void ls(FILE_ENTRY* entry, CONSOLE*cons){
     }
 
 	//カウンタ変数
-	int i, j, k;
-	int entry_num=2;
+	int i, j;
+	int entry_num=3;
 	int str_len;
-
 	FILE_ENTRY *entry_now;
-
-	k=0;	
+	
 	//線形探索
 	for(i=0; i < entry_num; i++){
 		entry_now = (entry+i);	//今、注目しているエントリの番地をentry_nowに入れる
 		//ファイルがあった。
 		if(entry_now->filename[0] != 0){		
-			//printf(&entry_now->filename, 0+(i*160), 20, 1);	//entry_now->filenameの番地を入れる
-			//print_font_ascii(char ascii_code, int x, int y)
 			char *str;
 			str = &entry_now->filename;
 			str_len = len(str);
@@ -358,8 +632,12 @@ void ls(FILE_ENTRY* entry, CONSOLE*cons){
 				if(*(str+j) == 32){	//スペースキーの場合、描画しない。
 					continue;
 				}else{
-                console_setbuf(cons, font_ASCII[*(str+j)], cons->now_col, cons->now_row);
-					k++;
+                    if(j==8){
+                        console_setbuf(cons, font_ASCII[0x2e], cons->now_col, cons->now_row);
+                        console_setbuf(cons, font_ASCII[*(str+j)], cons->now_col, cons->now_row);
+                    }else{
+                        console_setbuf(cons, font_ASCII[*(str+j)], cons->now_col, cons->now_row);
+                    }
 				}
 			}
 		}
