@@ -4,6 +4,102 @@
 void print_font(char *font, int x, int y);
 void print_font_ascii(char ascii_code, int x, int y);
 int strcmp(char *s1, char *s2);
+unsigned int len(char* s);
+//keyboard.c
+char pop_buff(BUFF *bf);
+
+//keycode変換用、各要素は、keycodeに対応したASCII_CODEが格納されています。
+char key_table[52]={0x00, 0x00, '1', '2', '3', '4', '5', '6', 0x37, 0x38, 0x39, 0x30,0x00, 0x00, 0x00, 0x00, 0x51, 0x57, 0x45, 0x52, 0x54, 0x59, 0x55, 0x5b,0x4f, 0x50, 0x40, 0x7b, 0x1c, 0x1d, 0x41, 0x53, 0x44, 0x46, 0x47, 0x48, 0x4a, 0x4b, 0x4c, 0x3b, 0x3a, 0x00, 0x2a, 0x7d, 0x5a, 0x58, 0x43, 0x56,0x42, 0x4e, 0x4d};
+
+//consoleのメイン関数
+void console_main(CONSOLE *cons){
+    BUFF *key_bf;
+    key_bf = 0x00010010;
+    unsigned char data;
+	FILE_ENTRY* file_entry;
+	file_entry = 0x3000;	//file_entryは0x3000番地から
+    int flg;
+    loop:
+        while(1){
+            //なぜかこのif文を入れないとバグが発生する。調査中
+            if(key_bf->data_num >100){
+                print_font_ascii(65, 30, 30);
+            }
+            if(key_bf->data_num>=1){
+                //CLI命令ここで使う方がいいかも?
+                data = pop_buff(key_bf);        //バッファからデータを取り出す。消費者
+                cons->command[cons->command_num++]=key_table[data];          //commandにデータを送る。
+                //STI命令で解除
+                //Enterを押したとき
+                if(data == 0x1c){
+                    //コマンドチェックを行う。
+                    flg = check_command(cons);
+                    //コマンドのリセット
+                    reset_command();
+                    //LBA方式でフロッピーディスクからデータを読み込みする。
+                    if(flg==0){
+                        read_lba(19);
+                        //lsコマンド
+                        ls(file_entry, cons);
+                    }
+                    //新しいプロンプト生成する。
+                    new_prompt(cons);
+                    //parse
+                    goto loop;
+                }
+                console_setbuf(cons, font_ASCII[key_table[data]], cons->now_col, cons->now_row);
+                consbuf_to_vram(cons);
+            }
+        }
+}
+
+//コマンドの中身をリセットする。
+void reset_command(CONSOLE *cons){
+    //コマンド文字列の数を0にする。
+    cons->command_num = 0;
+    return;
+}
+
+//こまんとチェックをする。
+int check_command(CONSOLE *cons){
+    //コマンドチェックを行う。
+    if(cons->command[0] == *"L"){   //0x4cは"L"
+        //コマンドの中身をリセットする。
+        return 0;   //コマンド実行を行う。
+    }
+    
+    return -1;      //コマンドは実行不可
+}
+
+//新しいプロンプトを生成する。
+void new_prompt(CONSOLE *cons){
+    cons->now_row++;
+    cons->now_col=0;
+    //最終列まで来た時
+    if(cons->now_row >= cons->max_row){
+        //コンソールリセットをする。
+        console_reset(cons);
+        return;
+    }
+    console_setbuf(cons, font_ASCII[78], cons->now_col, cons->now_row);
+    console_setbuf(cons, font_ASCII[65], cons->now_col, cons->now_row);
+    console_setbuf(cons, font_ASCII[79], cons->now_col, cons->now_row);   
+    console_setbuf(cons, font_ASCII[83], cons->now_col, cons->now_row); 
+    console_setbuf(cons, prompt, cons->now_col, cons->now_row);
+
+    consbuf_to_vram(cons);
+    return;
+}
+//commandにデータを送る。
+void send_command(CONSOLE *cons){
+    cons->command[cons->command_num++];
+    return;
+}
+
+//コマンドの構文解析をする。
+void parse_command(CONSOLE *cons){
+    return;
+}   
 
 //コンソール初期をする。
 void console_init(CONSOLE *cons){
@@ -17,10 +113,11 @@ void console_init(CONSOLE *cons){
     cons->vram_end   = 0xfd0c0000;
     cons->vram_high  = 1024;
     cons->vram_side  = 768;
+    cons->command_num = 0;
     int i;
 
     //バッファの初期化を行う。
-    for(i=0; i < cons->vram_high*cons->vram_side; i++){
+    for(i=0; i < (cons->vram_high)*(cons->vram_side); i++){
         cons->print_buf[i] = 0;
     }
     
@@ -29,7 +126,7 @@ void console_init(CONSOLE *cons){
     return;
 }
 
-//consoleのバッファ領域に描画データをかく
+//consoleのバッファ領域に１文字だけかく
 void console_setbuf(CONSOLE *cons, char *font, int col, int row){
 	char data;
     int i;
@@ -43,35 +140,27 @@ void console_setbuf(CONSOLE *cons, char *font, int col, int row){
 
 		if((data & 0x80) != 0){
 			cons->print_buf[x+1024*(i+y)] = 15;
-			//write_mem8(0xa0000+0+320*i, 15);
 		}
 		if((data & 0x40) != 0){
 			cons->print_buf[x+1+1024*(i+y)] = 15;
-			//write_mem8(0xa0000+1+320*i, 15);
 		}
 		if((data & 0x20) != 0){
 			cons->print_buf[x+2+1024*(i+y)] = 15;
-			//write_mem8(0xa0000+2+320*i, 15);
 		}
 		if((data & 0x10)  != 0){
 			cons->print_buf[x+3+1024*(i+y)] = 15;
-			//write_mem8(0xa0000+3+320*i, 15);
 		}
 		if((data & 0x08) != 0){
 			cons->print_buf[x+4+1024*(i+y)] = 15;
-			//write_mem8(0xa0000+4+320*i, 15);
 		}
 		if((data & 0x04) != 0){
 			cons->print_buf[x+5+1024*(i+y)] = 15;
-			//write_mem8(0xa0000+5+320*i, 15);
 		}
 		if((data & 0x02) != 0){
 			cons->print_buf[x+6+1024*(i+y)] = 15;
-			//write_mem8(0xa0000+6+320*i, 15);
 		}
 		if((data & 0x01) != 0){
 			cons->print_buf[x+7+1024*(i+y)] = 15;
-			//write_mem8(0xa0000+7+320*i, 15);
 		}
 	}
     
@@ -80,11 +169,16 @@ void console_setbuf(CONSOLE *cons, char *font, int col, int row){
     if(cons->now_col == cons->max_col){
         cons->now_col = 0;
         cons->now_row++;        
-        if(cons->now_row == cons->max_row){ //最後の行まできたs
+        if(cons->now_row >= cons->max_row){ //最後の行まできたs
             cons->now_row = 0;
             console_reset(cons);
         }
     }
+}
+
+//consoleの文字を１文字だけ削除する。
+void delete_char_cons(CONSOLE *cons){
+    return;
 }
 
 //コンソール画面を描画する。
@@ -104,7 +198,7 @@ void console_print(CONSOLE *cons){
 void consbuf_to_vram(CONSOLE *cons){
     int i;
     int j=0;
-    for(i=cons->vram_start; i < 0xfd0c0000; i++){
+    for(i=cons->vram_start; i < cons->vram_end; i++){
         *((char*)i) = cons->print_buf[j];
         j++;
     }
@@ -152,3 +246,87 @@ char prompt[16] ={
 };
 
 
+//ファイル作成
+void make_file(){
+    return;
+}
+
+//ディレクトリ作成
+void make_dir(){
+    return;
+}
+
+//ファイル削除
+void delete_file(){
+    return;
+}
+
+//ディレクトリ削除
+void delete_dir(){
+    return;
+}
+
+//ファイル保存
+void save_file(){
+    return;
+}
+
+//vimプログラム
+void vim(){
+    //テキストエディタを立ち上げる
+
+    //mainループ
+    for(;;){
+
+    }
+    return;
+}
+
+//vim用のデータ構造
+/***
+typedef struct vim_data{
+    char filenmae[8];
+}VIM;
+***/
+
+void ls(FILE_ENTRY* entry, CONSOLE*cons){
+
+    cons->now_row++;
+    cons->now_col=0;
+    //最終行まで来た時
+    if(cons->now_row >= cons->max_row){
+        console_reset(cons);
+    }
+
+	//カウンタ変数
+	int i, j, k;
+	int entry_num=2;
+	int str_len;
+
+	FILE_ENTRY *entry_now;
+
+	k=0;	
+	//線形探索
+	for(i=0; i < entry_num; i++){
+		entry_now = (entry+i);	//今、注目しているエントリの番地をentry_nowに入れる
+		//ファイルがあった。
+		if(entry_now->filename[0] != 0){		
+			//printf(&entry_now->filename, 0+(i*160), 20, 1);	//entry_now->filenameの番地を入れる
+			//print_font_ascii(char ascii_code, int x, int y)
+			char *str;
+			str = &entry_now->filename;
+			str_len = len(str);
+
+			for(j=0; j < str_len; j++){
+				if(*(str+j) == 32){	//スペースキーの場合、描画しない。
+					continue;
+				}else{
+                console_setbuf(cons, font_ASCII[*(str+j)], cons->now_col, cons->now_row);
+					k++;
+				}
+			}
+		}
+	}
+                                
+    consbuf_to_vram(cons);
+}
