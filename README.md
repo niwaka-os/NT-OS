@@ -38,7 +38,7 @@
    公開したOSとは、別のOSを作ります。(リンカスクリプトを自分で書いたもので開発してみたいから)
 <p>以下のURLは、僕が書いたフロッピディスクのデバイスドライバ入門記事です。参考にしてくれるとありがたいです。</p>
 <p><a href="https://qiita.com/tetutetuman/items/50731863c08ddc307742">フロッピーデバイスドライバ入門</a></p>
-
+※近々FAT12ファイルシステムにおいての、ファイル保存方法を記事にまとめるので、ぜひ寄ってみてください。
 参考文献
 1.  30日でできる!OS自作入門
 2.  はじめて読む486
@@ -48,6 +48,7 @@
 </p>brew install gcc-elf-i386を実行した後に、kernelの下でmake run</p>
 
 ![スクショ1](https://github.com/niwaka-os/NT-OS/tree/master/NT-OS1.png)
+
 
 ## License
 MIT
