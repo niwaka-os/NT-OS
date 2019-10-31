@@ -112,8 +112,8 @@ void motor_on(){
 //readコマンドを発行する。
 void issue_command_read(char cylinder,char head,char sector){
 
-    short addr = 0x3000;
-    short size = 8000;
+    short addr = DMA_BUFF;
+    short size = 512;
 
     motor_on();
     init_dma(addr, size);
@@ -142,6 +142,7 @@ void issue_command_read(char cylinder,char head,char sector){
     //IRQまち
     flpyirq_wait();
 
+    //とりあえず、エラーは捨てる。
     msr_check_resultphase();
     msr_check_resultphase();
     msr_check_resultphase();
@@ -155,8 +156,8 @@ void issue_command_read(char cylinder,char head,char sector){
 
 void issue_command_write(char cylinder,char head, char sector){
 
-    short addr = 0x3000;
-    short size = 8000;
+    short addr = DMA_BUFF;
+    short size = 1024;
 
     init_dma(addr, size);
     write_mode_dma();
@@ -212,14 +213,20 @@ void read_lba(int lba){
 }
 
 //LBA方式で書き込み
-void write_lba(int lba){
+//bufの内容をfloppyに書き込む。
+void write_lba(int lba, char *buf){
     char cylinder;
     char head;
     char sector;
 
-    cylinder = lba/(18*2);
-    head     = (lba/18)%head;
-    sector   = lba%18+1;
+    cylinder = ((char)lba)/(18*2);
+    head     = ((char)lba/18)%2;
+    sector   = (((char)lba)%18)+1;
+
+    int i;
+    for(i=0; i < 512; i++){
+        *((char*)DMA_BUFF+i) = *(buf+i);
+    }
 
     //コマンドを発行する。
 	issue_command_write(cylinder, head, sector);
@@ -227,9 +234,31 @@ void write_lba(int lba){
     return;
 }
 
-//名前で指定してファイルを呼び出す。
-//void read_file(char *filename);
+//LBA番号で、読み出すセクターの数も指定する。
+void read_sectors_lba(int lba, int sectors, char *buf){
+    
+    int i;
+    
+    for(i=lba; i < lba+sectors; i++){
+        read_lba(i);
+        trans_to_buff(buf);
+        buf = buf + 512;            //1sector分足す。
+    }
 
-//ファイルを保存する。
-//void write_file(char *filename);
+    return;
+}
 
+//LBA番号で、書き出すセクターの数も指定する。
+void write_sectors_lba(int lba, int sectors, char *buf){
+
+    return;
+}
+
+//指定したバッファに512byte分コピーする。
+void trans_to_buff(char *buf){
+    int i;
+    for(i=0; i < 512; i++){
+        *(buf+i) = *((char*)DMA_BUFF+i);
+    }
+    return;
+}
