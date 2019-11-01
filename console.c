@@ -1,5 +1,5 @@
 #include "NT-OS.h"
-
+//予定：コンソールを親にプロセスツリー構造を構築しようかな
 //void printf(char *font, int x, int y, int arg);
 void print_font(char *font, int x, int y);
 void print_font_ascii(char ascii_code, int x, int y);
@@ -9,9 +9,29 @@ int cmp_name(char *s1, char *s2);
 void make_file(char *filename);
 //keyboard.c
 char pop_buff(BUFF *bf);
-
+//console.c
+void print_error(CONSOLE *cons);
+int check_dot(char *filename);
+void delete_dot(char *filename);
 char prompt[16] ={0x00,0x40,0x20,0x10,0x08,0x04,0x02,0x01,0x01,0x02,0x04,0x08,0x10,0x20,0x40,0x00,};
-
+char cursor_block[16] = {
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+    0xff,
+};
 //VIM用のファイルは、1024*768以上に大きくならない。
 typedef struct vim_data{
     char filename[11];       //vimで使用するファイル名
@@ -58,7 +78,7 @@ void console_main(CONSOLE *cons){
                 //CLI命令ここで使う方がいいかも?
                 data = pop_buff(key_bf);        //バッファからデータを取り出す。消費者
                 cons->command[cons->command_num++]=key_table[data];          //commandにデータを送る。
-                //STI命令で解除しようから?
+                //STI命令で解除しようかな?
                 //Enterを押したとき
                 if(data == 0x1c){
                     cons->command[cons->command_num] = 0x00;
@@ -76,7 +96,28 @@ void console_main(CONSOLE *cons){
                         vim_main(vim, cons);
                     }else if(flg==2){
                         //ファイルを作る。
+                        //ここで、ドットを取り除く
+                        delete_dot(&cons->command[5]);
+                        //ファイル実行プロセス(本当のプロセスではない。)
                         make_file(&cons->command[5]);
+                    }else if(flg==-1){
+                        //無条件に改行を行う。
+                        cons->now_row++;
+                        cons->now_col = 0;
+                        //最後の列まできた     
+                        if(cons->now_row >= cons->max_row){ //最後の行まできたs
+                            cons->now_row = 0;
+                            console_reset(cons);
+                        }
+                        //エラーメッセージを表示する。  
+                        print_error(cons);
+                        goto loop;
+                    }else if(flg==-2){
+                        //新しいプロンプト生成する。
+                        new_prompt(cons);
+                        //parse
+                        reset_command(cons);
+                        goto loop;      //while分の先頭へ
                     }
                     //新しいプロンプト生成する。
                     new_prompt(cons);
@@ -124,17 +165,18 @@ int check_command(CONSOLE *cons){
             }
             return -1;//存在しなかった。
         }
-        //ファイル名をここでチェックする。
-        //if(check_file_exist(&cons->command[5])==1){
-            //ファイルは存在した。
-        //    return 1;
-        //}
+
         return -1;
     }else if(cmp_name_firstarg(&MAKE_COMMAND[0], &cons->command[0], 4)==1){
-        return 2;
+        //8文字目と9文字目の間に'.'が存在するのかのチェックを行う。
+        if(check_dot(&cons->command[5])==1){
+            return 2;
+        }
+        
+        return -1;//ファイル名の誤りがあります。
     }
 
-    return -1;      //コマンドは実行不可
+    return -2;      //コマンドは実行不可
 }
 
 //
@@ -263,10 +305,6 @@ void console_setbuf(CONSOLE *cons, char *font, int col, int row){
     }
 }
 
-//consoleの文字を１文字だけ削除する。
-void delete_char_cons(CONSOLE *cons){
-    return;
-}
 
 //コンソール画面を描画する。
 void console_print(CONSOLE *cons){
@@ -369,9 +407,10 @@ void vim_main(VIM *vim, CONSOLE *cons){
                 vim_titlesetbuf(vim, font_ASCII['Y'], 1, 59, 15);
 
                 //vramに書き込む
-                vimbuf_to_vram(vim);              
+                vimbuf_to_vram(vim);
+                //Sキーを押すためのループ              
                 for(;;){
-                    data = pop_buff(key_bf);
+                    data = pop_buff(key_bf);//BUFFから、データを取り出す。
                     if(data <= 127 && data>=0){
                         if(data==0x1f){//Sキーを押したら終了する。
                             //ファイルの保存をする。
@@ -406,7 +445,7 @@ void startup_vim(VIM *vim, CONSOLE *cons){
 
     //ファイル名の初期化を行う。
     for(i=0; i < 11; i++){
-        vim->filename[i] = cons->command[i+5];
+        vim->filename[i] = cons->command[i+4];
     }
 
     //char vim_buf[1024*768]; //vimで使用できるテキストのバッファ
@@ -538,7 +577,8 @@ void vim_titlesetbuf(VIM *vim, char *font, int row, int col, int color){
 }
 
 //vimのタイトルを入力する。
-void vim_title(){
+//char *sに、タイトルの文字列を入力する。
+void vim_title(VIM *vim, char *s, int col, int row, int backcolor){
     return;
 }
 
@@ -595,7 +635,6 @@ void vim_setbuf(VIM *vim, char *font, int row, int col){
     return;
 }
 
-
 void ls(FILE_ENTRY* entry, CONSOLE*cons){
 
     //下の数行は関数化する予定
@@ -614,7 +653,7 @@ void ls(FILE_ENTRY* entry, CONSOLE*cons){
 	
 	//線形探索
 	for(i=0; i < entry_num; i++){
-		entry_now = (entry+i);	//今、注目しているエントリの番地をentry_nowに入れる
+		entry_now = (fat12_entry+i);	//今、注目しているエントリの番地をentry_nowに入れる
 		//ファイルがあった。
 		if(entry_now->filename[0] != 0){		
 			char *str;
@@ -648,5 +687,47 @@ void print_any(char *file, int file_size){
 
 //文字を消す。delete keyに該当する機能kinou
 void delete_string(){
+    //左端にいるとき
+    //左端かつ左上にいる時、削除をしない。
+    return;
+}
+
+//テキストエディタに使用するキーコードの範囲内かをチェックする。
+void check_keycode_for_textedit(CONSOLE *cons){
+    return;
+}
+
+//カーソルを表示する。
+void cursor(CONSOLE *cons){
+    return;
+}
+
+//コンソール画面にエラーメッセージを表示する。
+void print_error(CONSOLE *cons){
+    console_setbuf(cons, font_ASCII['N'], cons->now_col, cons->now_row);
+    console_setbuf(cons, font_ASCII['O'], cons->now_col, cons->now_row);
+    new_prompt(cons);
+    consbuf_to_vram(cons);
+    reset_command(cons);
+    return;
+}
+
+//dotのチェックを行う。
+int check_dot(char *filename){
+    int i;//カウンタ変数
+
+    if(filename[8]=='.'){
+        return 1;//dotはあった
+    }
+
+    return -1;//dotはなかった
+}
+
+//dotを削除する
+void delete_dot(char *filename){
+    int i;
+    for(i=0; i < 3; i++){
+        filename[8+i] = filename[8+(i+1)];
+    }
     return;
 }

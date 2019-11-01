@@ -142,30 +142,36 @@ void store_file(char *file, char *filename){
     int clust_number;
     //EOFの添字を探す。
     int end_index;
-    end_index = search_EOF(file);
-    //FAT領域の空きとクラスタ番号の空きを探す。
-    file_info = search_fat12_region();
-
-    FILE_ENTRY *file_entry_now;
-    file_entry_now = file_info->entry;
-    
     int i;
-    for(i=0; i < 11; i++){
-        file_entry_now->filename[i] = filename[i];
+    end_index = search_EOF(file);
+    FILE_ENTRY *file_entry_now;
+    if(check_file_exist(filename)==-1){
+        //FAT領域の空きとクラスタ番号の空きを探す。
+        file_info = search_fat12_region();
+        file_entry_now = file_info->entry;
+        for(i=0; i < 11; i++){
+            file_entry_now->filename[i] = filename[i];
+        }
+        file_entry_now->first_logical_cluster = file_info->clustnumber;
+    }else{//ファイルは、存在した。
+        int k;
+        for(k=0; k < 224; k++){
+            file_entry_now = (fat12_entry+k);
+            //11文字比較を行う。
+            if(cmp_name_firstarg(file_entry_now->filename, filename, 11)==1){
+                //空きクラスタの割り当てを行う。
+                file_entry_now->first_logical_cluster = cal_startclustnumber();
+                break;
+            }
+        }
     }
-    file_entry_now->first_logical_cluster = file_info->clustnumber;
 
     //ファイルサイズを決定する。
     file_entry_now->file_size = end_index+1;
     //必要なクラスタ数を求める
     clust_number = cal_clustnumber(file_entry_now->file_size);
     alloc_clust_chain(file_entry_now->first_logical_cluster, clust_number);//開始クラスタ番号から繋いでいく。
-    write_to_disk(file_entry_now->first_logical_cluster, clust_number, file);//ディスクに保存する。
-    char *p;
-    p = DMA_BUFF;
-    for(i=0; i < 512; i++){
-        *(p+i) = 0;
-    }
+    write_to_disk(file_entry_now->first_logical_cluster, clust_number, file);//フロッピーディスクに保存する。
 
     //read_lba(53);//確認用
     save_fat12region();//fat領域をフロッピーディスクに保存する。
@@ -239,7 +245,6 @@ void write_to_disk(short first_clust_number, int clust_numbers, char *file){
     int i;
     short clust_number;
     clust_number = first_clust_number;
-
 
     for(i=0; i < clust_numbers; i++){
         //LBA方式においての、論理セクタ番号を取得する。(CHSと違い、開始は0から)
@@ -440,5 +445,11 @@ void make_file(char *filename){
     for(i=0; i < 11; i++){
         file_entry_now->filename[i] = filename[i];
     }
+    return;
+}
+
+//特定のファイルに関連したクラスタチェーンを解除する。
+void reset_clust_chain(char* filename){
+
     return;
 }
